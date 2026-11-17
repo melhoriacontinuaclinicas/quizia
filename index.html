@@ -110,6 +110,7 @@ button{font:inherit;cursor:pointer}button:focus-visible{outline:3px solid #ffbf0
   .quiz-shell{width:min(100%,500px)}
 }
 </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <section id="cover" class="screen cover-screen active" aria-label="Capa do questionário">
@@ -184,78 +185,55 @@ function renderResult(){const r=calculate();const code='IA-'+new Date().toISOStr
  $('dimensionChart').innerHTML='';r.dimensions.forEach(d=>{const row=document.createElement('div');row.className='chart-row';const name=document.createElement('div');name.className='chart-name';name.textContent=d.name;const track=document.createElement('div');track.className='bar-track';track.setAttribute('role','progressbar');track.setAttribute('aria-valuenow',d.pct);track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.setAttribute('aria-label',d.name);const fill=document.createElement('div');fill.className='bar-fill';fill.style.width=d.pct+'%';track.append(fill);const val=document.createElement('div');val.className='bar-value';val.textContent=d.pct+'%';row.append(name,track,val);$('dimensionChart').append(row);});
  $('insights').innerHTML='';const sorted=[...r.dimensions].sort((a,b)=>b.pct-a.pct);sorted.forEach(d=>{const [heading,body]=insightText(d);const box=document.createElement('div');box.className='insight';const strong=document.createElement('strong');strong.textContent=heading+' · '+d.name;const p=document.createElement('p');p.textContent=body;box.append(strong,p);$('insights').append(box);});
  const recs=[];const weakest=[...r.dimensions].sort((a,b)=>a.pct-b.pct).slice(0,2);weakest.forEach(d=>recs.push(d.recommendation));if(r.profile==='Atendimento Automatizado')recs.push('Antes de encerrar cada atendimento, confirme se a pessoa compreendeu a orientação e sabe qual é o próximo passo.');if(r.profile==='Atendimento Combinado')recs.push('Observe situações em que a pessoa precisa de apoio adicional e procure facilitar a jornada dentro das possibilidades da sua função.');if(r.profile==='Atendimento Humanizado')recs.push('Compartilhe boas práticas com a equipe e mantenha o cuidado aliado à segurança, aos protocolos e à proteção de dados.');$('recommendations').innerHTML='';const ul=document.createElement('ul');ul.className='recommendation-list';recs.forEach(t=>{const li=document.createElement('li');li.textContent=t;ul.append(li);});$('recommendations').append(ul);
- try{const stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');if(!stored.some(x=>x.id===record.id)){stored.push(record);localStorage.setItem(STORAGE_KEY,JSON.stringify(stored));}}catch(e){console.warn('Não foi possível gravar no armazenamento local.',e);}show('result');}
+ try{const stored=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');if(!stored.some(x=>x.id===record.id)){stored.push(record);localStorage.setItem(STORAGE_KEY,JSON.stringify(stored));}}catch(e){console.warn('Não foi possível gravar no armazenamento local.',e);}show('result'); if(typeof syncToSupabase==='function'){syncToSupabase(record);}}
 function downloadRecord(){if(!state.lastRecord)return;downloadFile(`resultado_${state.lastRecord.id}.json`,JSON.stringify(state.lastRecord,null,2),'application/json;charset=utf-8');}
 function downloadFile(name,content,type){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 $('startBtn').addEventListener('click',begin);$('backBtn').addEventListener('click',()=>{if(state.index>0){state.index--;renderQuestion();}});$('nextBtn').addEventListener('click',()=>{const q=currentQuestion();if(!state.answers[q.id])return;if(state.index<QUESTIONS.length-1){state.index++;renderQuestion();}else{if(QUESTIONS.some(x=>!state.answers[x.id]))return;renderResult();}});$('downloadBtn').addEventListener('click',downloadRecord);$('restartBtn').addEventListener('click',()=>{if(confirm('Iniciar um novo preenchimento? O resultado anterior já foi salvo neste dispositivo.')){show('cover');}});
 </script>
 
 <script>
-// Sincronização Automática com Supabase (Tabela Isolada: iagora_atendimento_respostas)
-(function() {
-  const SUPABASE_URL = "https://uwcskbqwdeuitflfenpd.supabase.co";
-  const SUPABASE_KEY = "sb_publishable_Ga9xq3EscJZYadHVWf5sgA_1YC09T_2";
-  const TABLE_NAME = "iagora_atendimento_respostas";
-  let lastSyncedId = null;
+const SUPABASE_URL = "https://mlvdgmvmuzbcughekpiz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_04TgybpwC683g-FRmfFLBg_2qwAVVzl";
+const TABLE_NAME = "iagora_atendimento_respostas";
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+let __lastSyncedRecordId = null;
 
-  async function sendToSupabase(record) {
-    if (!record || !record.id || record.id === lastSyncedId) return;
-    lastSyncedId = record.id;
+async function syncToSupabase(record) {
+  if (!record || !record.id || record.id === __lastSyncedRecordId || !supabaseClient) return;
+  __lastSyncedRecordId = record.id;
 
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/${TABLE_NAME}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": SUPABASE_KEY,
-          "Authorization": `Bearer ${SUPABASE_KEY}`,
-          "Prefer": "resolution=merge-duplicates,return=minimal"
-        },
-        body: JSON.stringify({
-          id: record.id,
-          completed_at: record.completedAt || new Date().toISOString(),
-          profile: record.profile,
-          score: Number(record.score) || 0,
-          max_score: Number(record.maxScore) || 30,
-          dimensions: record.dimensions || [],
-          answers: record.answers || [],
-          payload: record
-        })
-      });
+  const badge = document.getElementById('scoreBadge');
+  try {
+    const payload = {
+      id: record.id,
+      completed_at: record.completedAt || new Date().toISOString(),
+      profile: record.profile,
+      score: Number(record.score) || 0,
+      max_score: Number(record.maxScore) || 30,
+      dimensions: record.dimensions || [],
+      answers: record.answers || [],
+      payload: record
+    };
 
-      const badge = document.getElementById('scoreBadge');
-      if (res.ok && badge && !badge.textContent.includes('Sincronizado')) {
-        badge.textContent += ' · Sincronizado no painel';
-      }
-    } catch (err) {
-      console.error("Erro ao enviar para o Supabase:", err);
+    const { error } = await supabaseClient
+      .from(TABLE_NAME)
+      .upsert([payload], { onConflict: 'id' });
+
+    if (error) throw error;
+
+    if (badge && !badge.textContent.includes('Sincronizado')) {
+      badge.textContent += ' · 📊 Sincronizado no painel';
+    }
+    console.log("Sucesso ao salvar no Supabase!");
+  } catch (err) {
+    __lastSyncedRecordId = null;
+    console.error("Erro ao salvar no Supabase:", err);
+    if (badge && !badge.textContent.includes('Erro')) {
+      badge.textContent += ' · ⚠️ Erro ao sincronizar (' + (err.message || 'verifique SQL') + ')';
     }
   }
-
-  // Intercepta o salvamento no localStorage e também o clique final para garantir envio imediato
-  const origSetItem = localStorage.setItem.bind(localStorage);
-  localStorage.setItem = function(key, val) {
-    origSetItem(key, val);
-    if (key === 'iagora_atendimento_results_v1') {
-      try {
-        const arr = JSON.parse(val);
-        const latest = Array.isArray(arr) ? arr[arr.length - 1] : arr;
-        if (latest) sendToSupabase(latest);
-      } catch (e) {}
-    }
-  };
-
-  const nextBtn = document.getElementById('nextBtn');
-  if (nextBtn) {
-    nextBtn.addEventListener('click', () => {
-      setTimeout(() => {
-        if (typeof state !== 'undefined' && state && state.lastRecord) {
-          sendToSupabase(state.lastRecord);
-        }
-      }, 150);
-    });
-  }
-})();
+}
 </script>
+
 </body>
 </html>
